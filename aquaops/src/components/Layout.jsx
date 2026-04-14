@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { useAppData } from "../hooks/useLocalData";
+import { useData } from "../context/DataContext";
 
 const roleLabels = {
   admin: "מנהל משרד",
@@ -21,19 +21,61 @@ function NotificationBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const navigate = useNavigate();
-  const { ticketList, readingList, taskList } = useAppData();
+  const { currentUser } = useAuth();
+  const { ticketList, readingList, taskList } = useData();
 
-  const notifications = [
-    ...ticketList
-      .filter(t => t.priority === "גבוהה" && t.status !== "סגור")
-      .map(t => ({ id: `t${t.id}`, icon: "🔧", text: `תקלה דחופה: ${t.title}`, sub: t.address, tab: 4 })),
-    ...readingList
-      .filter(r => r.flag)
-      .map(r => ({ id: `r${r.id}`, icon: "💧", text: `קריאה חריגה: ${r.customerName}`, sub: r.flagReason, tab: 3 })),
-    ...taskList
-      .filter(t => t.status !== "הושלם" && t.dueDate && t.dueDate < new Date().toISOString().split("T")[0])
-      .map(t => ({ id: `k${t.id}`, icon: "📋", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}`, tab: 1 })),
-  ];
+  const today = new Date().toISOString().split("T")[0];
+
+  let notifications = [];
+
+  if (currentUser?.role === "admin") {
+    notifications = [
+      ...ticketList
+        .filter(t => t.priority === "גבוהה" && t.status !== "סגור")
+        .map(t => ({ id: `t${t.id}`, icon: "🔧", text: `תקלה דחופה: ${t.title}`, sub: t.address, tab: 4 })),
+      ...readingList
+        .filter(r => r.flag)
+        .map(r => ({ id: `r${r.id}`, icon: "💧", text: `קריאה חריגה: ${r.customerName}`, sub: r.flagReason, tab: 3 })),
+      ...taskList
+        .filter(t => t.status !== "הושלם" && t.status !== "נדחה" && t.dueDate && t.dueDate < today)
+        .map(t => ({ id: `k${t.id}`, icon: "📋", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}`, tab: 1 })),
+    ];
+  } else if (currentUser?.role === "collector") {
+    const myTasks = taskList.filter(t => t.assignedTo === currentUser.id);
+    notifications = [
+      ...myTasks
+        .filter(t => t.status !== "הושלם" && t.status !== "נדחה" && t.dueDate && t.dueDate < today)
+        .map(t => ({ id: `k${t.id}`, icon: "📋", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}` })),
+      ...myTasks
+        .filter(t => t.status === "פתוח" && t.priority === "גבוהה")
+        .map(t => ({ id: `u${t.id}`, icon: "⚡", text: `משימה דחופה: ${t.title}`, sub: t.description })),
+    ];
+  } else if (currentUser?.role === "meter_reader") {
+    const myReadings = readingList.filter(r => r.assignedReader === currentUser.id);
+    const myTasks = taskList.filter(t => t.assignedTo === currentUser.id);
+    notifications = [
+      ...myReadings
+        .filter(r => r.flag)
+        .map(r => ({ id: `r${r.id}`, icon: "💧", text: `קריאה חריגה: ${r.customerName}`, sub: r.flagReason })),
+      ...myTasks
+        .filter(t => t.status !== "הושלם" && t.status !== "נדחה" && t.dueDate && t.dueDate < today)
+        .map(t => ({ id: `k${t.id}`, icon: "📋", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}` })),
+    ];
+  } else if (currentUser?.role === "technician") {
+    const myTickets = ticketList.filter(t => t.assignedTech === currentUser.id);
+    const myTasks = taskList.filter(t => t.assignedTo === currentUser.id);
+    notifications = [
+      ...myTickets
+        .filter(t => t.priority === "גבוהה" && t.status !== "סגור")
+        .map(t => ({ id: `t${t.id}`, icon: "🔧", text: `תקלה דחופה: ${t.title}`, sub: t.address })),
+      ...myTasks
+        .filter(t => t.status !== "הושלם" && t.status !== "נדחה" && t.dueDate && t.dueDate < today)
+        .map(t => ({ id: `k${t.id}`, icon: "📋", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}` })),
+    ];
+  }
+
+  // Remove duplicates
+  const unique = notifications.filter((n, i, arr) => arr.findIndex(x => x.id === n.id) === i);
 
   useEffect(() => {
     function handleClick(e) {
@@ -43,24 +85,30 @@ function NotificationBell() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  function handleNotifClick(tab) {
+  function handleNotifClick(n) {
     setOpen(false);
-    navigate(`/admin?tab=${tab}`);
+    if (currentUser?.role === "admin" && n.tab !== undefined) {
+      navigate(`/admin?tab=${n.tab}`);
+    }
   }
 
   return (
     <div className="notif-wrapper" ref={ref}>
       <button className="notif-btn" onClick={() => setOpen(o => !o)}>
         🔔
-        {notifications.length > 0 && <span className="notif-badge">{notifications.length}</span>}
+        {unique.length > 0 && <span className="notif-badge">{unique.length}</span>}
       </button>
       {open && (
         <div className="notif-dropdown">
-          <div className="notif-header">התראות</div>
-          {notifications.length === 0
+          <div className="notif-header">התראות ({unique.length})</div>
+          {unique.length === 0
             ? <div className="notif-empty">אין התראות חדשות</div>
-            : notifications.map(n => (
-              <div key={n.id} className="notif-item notif-item-clickable" onClick={() => handleNotifClick(n.tab)}>
+            : unique.map(n => (
+              <div
+                key={n.id}
+                className={`notif-item ${currentUser?.role === "admin" ? "notif-item-clickable" : ""}`}
+                onClick={() => handleNotifClick(n)}
+              >
                 <span className="notif-icon">{n.icon}</span>
                 <div>
                   <div className="notif-text">{n.text}</div>

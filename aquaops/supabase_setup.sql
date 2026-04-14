@@ -15,27 +15,27 @@ DROP TABLE IF EXISTS users;
 -- ============================================================
 
 CREATE TABLE users (
-  id INTEGER PRIMARY KEY,
+  id BIGINT PRIMARY KEY,
   data JSONB NOT NULL
 );
 
 CREATE TABLE customers (
-  id INTEGER PRIMARY KEY,
+  id BIGINT PRIMARY KEY,
   data JSONB NOT NULL
 );
 
 CREATE TABLE meter_readings (
-  id INTEGER PRIMARY KEY,
+  id BIGINT PRIMARY KEY,
   data JSONB NOT NULL
 );
 
 CREATE TABLE tickets (
-  id INTEGER PRIMARY KEY,
+  id BIGINT PRIMARY KEY,
   data JSONB NOT NULL
 );
 
 CREATE TABLE tasks (
-  id INTEGER PRIMARY KEY,
+  id BIGINT PRIMARY KEY,
   data JSONB NOT NULL
 );
 
