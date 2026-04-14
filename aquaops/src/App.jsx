@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { DataProvider } from "./context/DataContext";
 import Login from "./pages/Login";
 import AdminPanel from "./pages/AdminPanel";
 import CollectorPanel from "./pages/CollectorPanel";
@@ -46,7 +47,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <DataProvider>
+          <AppRoutes />
+        </DataProvider>
       </AuthProvider>
     </BrowserRouter>
   );

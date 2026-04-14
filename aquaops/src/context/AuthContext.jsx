@@ -1,7 +1,16 @@
 import { createContext, useContext, useState } from "react";
-import { users } from "../data/mockData";
+import { users as initialUsers } from "../data/mockData";
 
 const AuthContext = createContext(null);
+
+function getUsers() {
+  try {
+    const saved = localStorage.getItem("aquaops_users");
+    return saved ? JSON.parse(saved) : initialUsers;
+  } catch {
+    return initialUsers;
+  }
+}
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(() => {
@@ -10,6 +19,7 @@ export function AuthProvider({ children }) {
   });
 
   function login(username, password) {
+    const users = getUsers();
     const user = users.find(u => u.username === username && u.password === password);
     if (user) {
       const token = btoa(JSON.stringify({ id: user.id, role: user.role, exp: Date.now() + 3600000 }));
