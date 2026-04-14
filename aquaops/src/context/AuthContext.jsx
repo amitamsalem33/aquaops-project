@@ -1,28 +1,41 @@
-import { createContext, useContext, useState } from "react";
-import { users as initialUsers } from "../data/mockData";
+import { createContext, useContext, useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
+import { users as fallbackUsers } from "../data/mockData";
 
 const AuthContext = createContext(null);
 
-function getUsers() {
-  try {
-    const saved = localStorage.getItem("aquaops_users");
-    return saved ? JSON.parse(saved) : initialUsers;
-  } catch {
-    return initialUsers;
-  }
-}
-
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem("aquaops_user");
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem("aquaops_user");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
 
+  const [users, setUsers] = useState(fallbackUsers);
+
+  // Load users from Supabase on mount
+  useEffect(() => {
+    supabase
+      .from("users")
+      .select("data")
+      .then(({ data, error }) => {
+        if (!error && data && data.length > 0) {
+          setUsers(data.map((row) => row.data));
+        }
+      });
+  }, []);
+
   function login(username, password) {
-    const users = getUsers();
-    const user = users.find(u => u.username === username && u.password === password);
+    const user = users.find(
+      (u) => u.username === username && u.password === password
+    );
     if (user) {
-      const token = btoa(JSON.stringify({ id: user.id, role: user.role, exp: Date.now() + 3600000 }));
+      const token = btoa(
+        JSON.stringify({ id: user.id, role: user.role, exp: Date.now() + 3600000 })
+      );
       const userWithToken = { ...user, token };
       localStorage.setItem("aquaops_user", JSON.stringify(userWithToken));
       setCurrentUser(userWithToken);
