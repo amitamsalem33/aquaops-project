@@ -43,34 +43,48 @@ function NotificationBell() {
   } else if (currentUser?.role === "collector") {
     const myTasks = taskList.filter(t => t.assignedTo === currentUser.id);
     notifications = [
+      // כל משימה חדשה שהוקצתה (פתוח = טרם טופלה)
       ...myTasks
-        .filter(t => t.status !== "הושלם" && t.status !== "נדחה" && t.dueDate && t.dueDate < today)
-        .map(t => ({ id: `k${t.id}`, icon: "📋", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}` })),
+        .filter(t => t.status === "פתוח")
+        .map(t => ({ id: `new${t.id}`, icon: "📬", text: `משימה חדשה: ${t.title}`, sub: `יעד: ${t.dueDate || "—"} | ${t.priority}` })),
+      // משימות באיחור שכבר בביצוע
       ...myTasks
-        .filter(t => t.status === "פתוח" && t.priority === "גבוהה")
-        .map(t => ({ id: `u${t.id}`, icon: "⚡", text: `משימה דחופה: ${t.title}`, sub: t.description })),
+        .filter(t => t.status === "בביצוע" && t.dueDate && t.dueDate < today)
+        .map(t => ({ id: `late${t.id}`, icon: "⏰", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}` })),
     ];
   } else if (currentUser?.role === "meter_reader") {
     const myReadings = readingList.filter(r => r.assignedReader === currentUser.id);
     const myTasks = taskList.filter(t => t.assignedTo === currentUser.id);
     notifications = [
+      // כל משימה חדשה שהוקצתה
+      ...myTasks
+        .filter(t => t.status === "פתוח")
+        .map(t => ({ id: `new${t.id}`, icon: "📬", text: `משימה חדשה: ${t.title}`, sub: `יעד: ${t.dueDate || "—"} | ${t.priority}` })),
+      // קריאות חריגות
       ...myReadings
         .filter(r => r.flag)
         .map(r => ({ id: `r${r.id}`, icon: "💧", text: `קריאה חריגה: ${r.customerName}`, sub: r.flagReason })),
+      // משימות בביצוע שבאיחור
       ...myTasks
-        .filter(t => t.status !== "הושלם" && t.status !== "נדחה" && t.dueDate && t.dueDate < today)
-        .map(t => ({ id: `k${t.id}`, icon: "📋", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}` })),
+        .filter(t => t.status === "בביצוע" && t.dueDate && t.dueDate < today)
+        .map(t => ({ id: `late${t.id}`, icon: "⏰", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}` })),
     ];
   } else if (currentUser?.role === "technician") {
     const myTickets = ticketList.filter(t => t.assignedTech === currentUser.id);
     const myTasks = taskList.filter(t => t.assignedTo === currentUser.id);
     notifications = [
+      // כל משימה חדשה שהוקצתה
+      ...myTasks
+        .filter(t => t.status === "פתוח")
+        .map(t => ({ id: `new${t.id}`, icon: "📬", text: `משימה חדשה: ${t.title}`, sub: `יעד: ${t.dueDate || "—"} | ${t.priority}` })),
+      // תקלות דחופות
       ...myTickets
         .filter(t => t.priority === "גבוהה" && t.status !== "סגור")
-        .map(t => ({ id: `t${t.id}`, icon: "🔧", text: `תקלה דחופה: ${t.title}`, sub: t.address })),
+        .map(t => ({ id: `tick${t.id}`, icon: "🔧", text: `תקלה דחופה: ${t.title}`, sub: t.address })),
+      // משימות בביצוע שבאיחור
       ...myTasks
-        .filter(t => t.status !== "הושלם" && t.status !== "נדחה" && t.dueDate && t.dueDate < today)
-        .map(t => ({ id: `k${t.id}`, icon: "📋", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}` })),
+        .filter(t => t.status === "בביצוע" && t.dueDate && t.dueDate < today)
+        .map(t => ({ id: `late${t.id}`, icon: "⏰", text: `משימה באיחור: ${t.title}`, sub: `יעד: ${t.dueDate}` })),
     ];
   }
 
