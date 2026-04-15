@@ -7,7 +7,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
-      const saved = localStorage.getItem("aquaops_user");
+      const saved = sessionStorage.getItem("aquaops_user");
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
         JSON.stringify({ id: user.id, role: user.role, exp: Date.now() + 3600000 })
       );
       const userWithToken = { ...user, token };
-      localStorage.setItem("aquaops_user", JSON.stringify(userWithToken));
+      sessionStorage.setItem("aquaops_user", JSON.stringify(userWithToken));
       setCurrentUser(userWithToken);
       return { success: true, user: userWithToken };
     }
@@ -45,7 +45,7 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
-    localStorage.removeItem("aquaops_user");
+    sessionStorage.removeItem("aquaops_user");
     setCurrentUser(null);
   }
 

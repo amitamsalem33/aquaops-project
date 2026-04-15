@@ -3,10 +3,13 @@ import { useSearchParams } from "react-router-dom";
 import Layout from "../components/Layout";
 import { useData } from "../context/DataContext";
 import { openPrintReport, statusBadge, priorityBadge, makeTable, statsRow } from "../utils/printReport";
+import { usePagination, Paginator } from "../hooks/usePagination";
+import { formatDate } from "../utils/formatDate";
 import * as XLSX from "xlsx";
 import {
   PieChart, Pie, Cell, Tooltip, Legend,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer,
+  RadialBarChart, RadialBar,
 } from "recharts";
 
 const tabs = ["לוח בקרה", "משימות", "גביה", "קריאות מונים", "תקלות", "דוח מחלקתי", "ניהול עובדים"];
@@ -28,22 +31,39 @@ function StatCard({ icon, label, value, color, sub }) {
 }
 
 function Dashboard({ customers, tickets, meterReadings, tasks, userList }) {
-  const totalDebt = customers.reduce((s, c) => s + c.debt, 0);
-  const openTickets = tickets.filter(t => t.status !== "סגור").length;
+  // ── live stats ──────────────────────────────────────────────────────────────
+  const totalDebt      = customers.reduce((s, c) => s + c.debt, 0);
+  const openTickets    = tickets.filter(t => t.status !== "סגור").length;
   const pendingReadings = meterReadings.filter(r => r.status === "ממתין").length;
   const flaggedReadings = meterReadings.filter(r => r.flag).length;
-  const openTasks = tasks.filter(t => t.status !== "הושלם").length;
+  const openTasks      = tasks.filter(t => t.status !== "הושלם" && t.status !== "נדחה").length;
 
+  // ── chart data (all derived live from props) ─────────────────────────────
   const debtPieData = [
     { name: "חוב פתוח", value: customers.filter(c => c.debt > 0).length },
-    { name: "שולם", value: customers.filter(c => c.debt === 0).length },
+    { name: "שולם",     value: customers.filter(c => c.debt === 0).length },
   ];
-  const PIE_COLORS = ["#ef4444", "#22c55e"];
+
   const ticketsBarData = [
-    { name: "פתוח", value: tickets.filter(t => t.status === "פתוח").length },
-    { name: "בטיפול", value: tickets.filter(t => t.status === "בטיפול").length },
-    { name: "סגור", value: tickets.filter(t => t.status === "סגור").length },
+    { name: "פתוח",   value: tickets.filter(t => t.status === "פתוח").length,   fill: "#f59e0b" },
+    { name: "בטיפול", value: tickets.filter(t => t.status === "בטיפול").length, fill: "#3b82f6" },
+    { name: "סגור",   value: tickets.filter(t => t.status === "סגור").length,   fill: "#22c55e" },
   ];
+
+  const tasksBarData = [
+    { name: "פתוח",    value: tasks.filter(t => t.status === "פתוח").length,    fill: "#f59e0b" },
+    { name: "בביצוע",  value: tasks.filter(t => t.status === "בביצוע").length,  fill: "#3b82f6" },
+    { name: "הושלם",   value: tasks.filter(t => t.status === "הושלם").length,   fill: "#22c55e" },
+    { name: "נדחה",    value: tasks.filter(t => t.status === "נדחה").length,    fill: "#ef4444" },
+  ];
+
+  const readingsPieData = [
+    { name: "ממתין",   value: meterReadings.filter(r => r.status === "ממתין").length },
+    { name: "הוזן",    value: meterReadings.filter(r => r.status === "הוזן" && !r.flag).length },
+    { name: "⚠️ חריגה", value: flaggedReadings },
+  ];
+  const READINGS_COLORS = ["#94a3b8", "#22c55e", "#ef4444"];
+  const PIE_COLORS = ["#ef4444", "#22c55e"];
 
   function exportReport() {
     const urgentTickets = tickets.filter(t => t.priority === "גבוהה" && t.status !== "סגור");
@@ -77,41 +97,88 @@ function Dashboard({ customers, tickets, meterReadings, tasks, userList }) {
         <h2 className="section-title">לוח בקרה ראשי</h2>
         <button className="btn-export" onClick={exportReport}>⬇ ייצוא PDF</button>
       </div>
+
+      {/* ── KPI cards ── */}
       <div className="stats-grid">
         <StatCard icon="💰" label='סה"כ חובות פתוחים' value={`₪${totalDebt.toLocaleString()}`} color="#ef4444" sub={`${customers.filter(c => c.debt > 0).length} לקוחות`} />
-        <StatCard icon="🔧" label="תקלות פתוחות" value={openTickets} color="#f59e0b" sub={`${tickets.filter(t => t.priority === "גבוהה" && t.status !== "סגור").length} בעדיפות גבוהה`} />
-        <StatCard icon="📊" label="קריאות ממתינות" value={pendingReadings} color="#3b82f6" sub={`${flaggedReadings} חריגות`} />
-        <StatCard icon="📋" label="משימות פתוחות" value={openTasks} color="#8b5cf6" sub={`${tasks.filter(t => t.status === "בביצוע").length} בביצוע`} />
+        <StatCard icon="🔧" label="תקלות פתוחות"    value={openTickets}     color="#f59e0b" sub={`${tickets.filter(t => t.priority === "גבוהה" && t.status !== "סגור").length} בעדיפות גבוהה`} />
+        <StatCard icon="📊" label="קריאות ממתינות"  value={pendingReadings} color="#3b82f6" sub={`${flaggedReadings} חריגות`} />
+        <StatCard icon="📋" label="משימות פעילות"   value={openTasks}       color="#8b5cf6" sub={`${tasks.filter(t => t.status === "בביצוע").length} בביצוע`} />
       </div>
+
+      {/* ── row 1: debt pie + tickets bar ── */}
       <div className="dashboard-grid">
         <div className="dashboard-card">
           <h3>💰 סטטוס גביה</h3>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={debtPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ cx, cy, midAngle, outerRadius, value }) => {
-                const RADIAN = Math.PI / 180;
-                const x = cx + (outerRadius + 24) * Math.cos(-midAngle * RADIAN);
-                const y = cy + (outerRadius + 24) * Math.sin(-midAngle * RADIAN);
-                return <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={14} fontWeight="bold" fill="#1a202c">{value}</text>;
-              }}>
+              <Pie data={debtPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
+                label={({ cx, cy, midAngle, outerRadius, value }) => {
+                  if (value === 0) return null;
+                  const R = Math.PI / 180;
+                  const x = cx + (outerRadius + 24) * Math.cos(-midAngle * R);
+                  const y = cy + (outerRadius + 24) * Math.sin(-midAngle * R);
+                  return <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={14} fontWeight="bold" fill="#1a202c">{value}</text>;
+                }}>
                 {debtPieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
               </Pie>
               <Tooltip /><Legend />
             </PieChart>
           </ResponsiveContainer>
         </div>
+
         <div className="dashboard-card">
-          <h3>🔧 סטטוס תקלות</h3>
+          <h3>🔧 תקלות לפי סטטוס</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={ticketsBarData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" /><YAxis allowDecimals={false} />
               <Tooltip />
-              <Bar dataKey="value" name="תקלות" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="value" name="תקלות" radius={[4, 4, 0, 0]}>
+                {ticketsBarData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* ── row 2: tasks bar + readings pie ── */}
+      <div className="dashboard-grid" style={{ marginTop: "1rem" }}>
+        <div className="dashboard-card">
+          <h3>📋 משימות לפי סטטוס</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={tasksBarData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" /><YAxis allowDecimals={false} />
+              <Tooltip />
+              <Bar dataKey="value" name="משימות" radius={[4, 4, 0, 0]}>
+                {tasksBarData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="dashboard-card">
+          <h3>💧 קריאות מונים</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie data={readingsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
+                label={({ cx, cy, midAngle, outerRadius, value }) => {
+                  if (value === 0) return null;
+                  const R = Math.PI / 180;
+                  const x = cx + (outerRadius + 24) * Math.cos(-midAngle * R);
+                  const y = cy + (outerRadius + 24) * Math.sin(-midAngle * R);
+                  return <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={14} fontWeight="bold" fill="#1a202c">{value}</text>;
+                }}>
+                {readingsPieData.map((_, i) => <Cell key={i} fill={READINGS_COLORS[i]} />)}
+              </Pie>
+              <Tooltip /><Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── row 3: urgent tickets + flagged readings ── */}
       <div className="dashboard-grid" style={{ marginTop: "1rem" }}>
         <div className="dashboard-card">
           <h3>⚠️ תקלות דחופות</h3>
@@ -125,6 +192,8 @@ function Dashboard({ customers, tickets, meterReadings, tasks, userList }) {
                   <td><span className={`badge ${t.status === "פתוח" ? "badge-orange" : "badge-blue"}`}>{t.status}</span></td>
                 </tr>
               ))}
+              {tickets.filter(t => t.priority === "גבוהה" && t.status !== "סגור").length === 0 &&
+                <tr><td colSpan="4" className="empty">אין תקלות דחופות</td></tr>}
             </tbody>
           </table>
         </div>
@@ -146,30 +215,91 @@ function Dashboard({ customers, tickets, meterReadings, tasks, userList }) {
 }
 
 function WorkloadBar({ taskList, userList }) {
+  const [workerModal, setWorkerModal] = useState(null);
+  const [collapsed, setCollapsed] = useState(false);
   const fieldWorkers = userList.filter(u => u.role !== "admin");
+
+  function openWorkerModal(u) {
+    const tasks = taskList.filter(t => t.assignedTo === u.id);
+    setWorkerModal({ user: u, tasks });
+  }
+
   return (
     <div className="workload-section">
-      <h3>עומס עבודה לפי עובד</h3>
-      <div className="workload-grid">
-        {["collector", "meter_reader", "technician"].map(role => (
-          <div key={role} className="workload-team">
-            <div className="workload-team-title">{roleTeamLabel(role)}</div>
-            {fieldWorkers.filter(u => u.role === role).map(u => {
-              const active = taskList.filter(t => t.assignedTo === u.id && t.status !== "הושלם" && t.status !== "נדחה").length;
-              const level = active <= 2 ? "low" : active <= 4 ? "mid" : "high";
-              return (
-                <div key={u.id} className="workload-row">
-                  <span className="workload-name">{u.name}</span>
-                  <div className="workload-bar-wrap">
-                    <div className={`workload-bar workload-${level}`} style={{ width: `${Math.min(active * 20, 100)}%` }} />
-                  </div>
-                  <span className={`workload-count workload-count-${level}`}>{active} פעילות</span>
-                </div>
-              );
-            })}
-          </div>
-        ))}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: collapsed ? 0 : "12px" }}>
+        <h3 style={{ margin: 0 }}>
+          עומס עבודה לפי עובד
+          {!collapsed && <span style={{ fontSize: "12px", color: "#94a3b8", fontWeight: 400, marginRight: "8px" }}>לחץ על שם לצפייה במשימות</span>}
+        </h3>
+        <button
+          onClick={() => setCollapsed(c => !c)}
+          style={{ background: "none", border: "1.5px solid #e2e8f0", borderRadius: "6px", padding: "4px 12px", cursor: "pointer", fontSize: "13px", color: "#64748b", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}
+        >
+          {collapsed ? "▼ הצג" : "▲ מזער"}
+        </button>
       </div>
+      {!collapsed && <div className="workload-grid">
+        {["collector", "meter_reader", "technician"].map(role => {
+          const workers = fieldWorkers.filter(u => u.role === role);
+          return (
+            <div key={role} className="workload-team">
+              <div className="workload-team-title">{roleTeamLabel(role)} ({workers.length})</div>
+              <div className="workload-table-wrap">
+                <table className="workload-compact-table">
+                  <tbody>
+                    {workers.map(u => {
+                      const active = taskList.filter(t => t.assignedTo === u.id && t.status !== "הושלם" && t.status !== "נדחה").length;
+                      const done = taskList.filter(t => t.assignedTo === u.id && t.status === "הושלם").length;
+                      const level = active <= 2 ? "low" : active <= 4 ? "mid" : "high";
+                      const badgeClass = level === "low" ? "badge-green" : level === "mid" ? "badge-orange" : "badge-red";
+                      return (
+                        <tr key={u.id} className="workload-compact-row" onClick={() => openWorkerModal(u)}>
+                          <td className="wc-name">{u.name}</td>
+                          <td className="wc-badge"><span className={`badge ${badgeClass}`}>{active} פעילות</span></td>
+                          <td className="wc-done" style={{ color: "#94a3b8", fontSize: "12px" }}>{done} הושלמו</td>
+                        </tr>
+                      );
+                    })}
+                    {workers.length === 0 && <tr><td colSpan="3" style={{ color: "#94a3b8", fontSize: "13px", padding: "8px" }}>אין עובדים בצוות</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </div>}
+
+      {workerModal && (
+        <div className="modal-overlay" onClick={() => setWorkerModal(null)}>
+          <div className="modal-box" style={{ maxWidth: "620px", textAlign: "right" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h3 style={{ margin: 0 }}>משימות — {workerModal.user.name}</h3>
+              <button className="btn-secondary" style={{ padding: "4px 12px", fontSize: "13px" }} onClick={() => setWorkerModal(null)}>✕ סגור</button>
+            </div>
+            <div style={{ fontSize: "13px", color: "#64748b", marginBottom: "16px" }}>
+              {roleLabel(workerModal.user.role)} | {workerModal.user.zone || workerModal.user.specialty || "—"}
+            </div>
+            {workerModal.tasks.length === 0
+              ? <p style={{ color: "#94a3b8", textAlign: "center", padding: "24px" }}>אין משימות מוקצות לעובד זה</p>
+              : <table className="data-table">
+                  <thead>
+                    <tr><th>כותרת</th><th>עדיפות</th><th>יעד</th><th>סטטוס</th></tr>
+                  </thead>
+                  <tbody>
+                    {workerModal.tasks.map(t => (
+                      <tr key={t.id}>
+                        <td><strong>{t.title}</strong>{t.description && <><br /><small style={{ color: "#6b7280" }}>{t.description}</small></>}</td>
+                        <td><span className={`badge ${t.priority === "גבוהה" ? "badge-red" : t.priority === "נמוכה" ? "badge-gray" : "badge-blue"}`}>{t.priority}</span></td>
+                        <td style={{ fontSize: "13px" }}>{formatDate(t.dueDate)}</td>
+                        <td><span className={`badge ${t.status === "הושלם" ? "badge-green" : t.status === "נדחה" ? "badge-gray" : t.status === "בביצוע" ? "badge-blue" : "badge-orange"}`}>{t.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+            }
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -198,6 +328,8 @@ function TasksManager({ taskList, setTaskList, userList }) {
         return String(t.title || "").includes(q) || String(worker?.name || "").includes(q);
       })
     : activeTasks;
+
+  const { paged: pagedTasks, page: taskPage, setPage: setTaskPage, totalPages: taskTotalPages } = usePagination(displayedTasks, 10);
 
   useEffect(() => {
     if (filteredWorkers.length === 1) {
@@ -261,7 +393,10 @@ function TasksManager({ taskList, setTaskList, userList }) {
                     <p>{t.description}</p>
                     <span className="reject-reason-display">סיבה: {t.rejectionReason} — נדחה ע״י {rejectedByUser?.name} ב-{t.rejectedAt}</span>
                   </div>
-                  <button className="btn-primary" onClick={() => { setReassigningTaskId(t.id); setNewAssignee(""); setReassignSearch(""); }}>הקצה מחדש</button>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button className="btn-primary" onClick={() => { setReassigningTaskId(t.id); setNewAssignee(""); setReassignSearch(""); }}>הקצה מחדש</button>
+                    <button className="btn-reject" style={{ padding: "10px 16px" }} onClick={() => setTaskList(prev => prev.filter(x => x.id !== t.id))}>מחק</button>
+                  </div>
                 </div>
                 {reassigningTaskId === t.id && (() => {
                   const candidates = fieldWorkers.filter(u => u.id !== t.rejectedBy && u.role === t.assignedRole);
@@ -426,15 +561,15 @@ function TasksManager({ taskList, setTaskList, userList }) {
           <tr><th>כותרת</th><th>מוקצה ל</th><th>עדיפות</th><th>תאריך יעד</th><th>סטטוס</th><th>פעולות</th></tr>
         </thead>
         <tbody>
-          {displayedTasks.length === 0 && <tr><td colSpan="6" className="empty">לא נמצאו תוצאות</td></tr>}
-          {displayedTasks.map(t => {
+          {pagedTasks.length === 0 && <tr><td colSpan="6" className="empty">לא נמצאו תוצאות</td></tr>}
+          {pagedTasks.map(t => {
             const worker = userList.find(u => u.id === t.assignedTo);
             return (
               <tr key={t.id}>
                 <td><strong>{t.title}</strong><br /><small>{t.description}</small></td>
                 <td>{worker?.name || "—"}</td>
                 <td><span className={`badge ${t.priority === "גבוהה" ? "badge-red" : t.priority === "נמוכה" ? "badge-gray" : "badge-blue"}`}>{t.priority}</span></td>
-                <td>{t.dueDate}</td>
+                <td>{formatDate(t.dueDate)}</td>
                 <td><span className={`badge ${t.status === "הושלם" ? "badge-green" : t.status === "בביצוע" ? "badge-blue" : "badge-orange"}`}>{t.status}</span></td>
                 <td>
                   <select className="status-select" value={t.status} onChange={e => updateStatus(t.id, e.target.value)}>
@@ -446,6 +581,7 @@ function TasksManager({ taskList, setTaskList, userList }) {
           })}
         </tbody>
       </table>
+      <Paginator page={taskPage} totalPages={taskTotalPages} setPage={setTaskPage} total={displayedTasks.length} pageSize={10} />
     </div>
   );
 }
@@ -459,6 +595,8 @@ function DebtOverview({ customers, userList }) {
     const matchStatus = statusFilter === "הכל" || c.status === statusFilter;
     return matchSearch && matchStatus;
   });
+
+  const { paged, page, setPage, totalPages } = usePagination(filtered, 10);
 
   function exportExcel() {
     const rows = filtered.map(c => {
@@ -491,8 +629,8 @@ function DebtOverview({ customers, userList }) {
       <table className="data-table">
         <thead><tr><th>שם לקוח</th><th>מספר חשבון</th><th>כתובת</th><th>חוב</th><th>גובה מוקצה</th><th>סטטוס</th></tr></thead>
         <tbody>
-          {filtered.length === 0 && <tr><td colSpan="6" className="empty">לא נמצאו תוצאות</td></tr>}
-          {filtered.map(c => {
+          {paged.length === 0 && <tr><td colSpan="6" className="empty">לא נמצאו תוצאות</td></tr>}
+          {paged.map(c => {
             const collector = userList.find(u => u.id === c.assignedCollector);
             return (
               <tr key={c.id}>
@@ -507,11 +645,24 @@ function DebtOverview({ customers, userList }) {
           })}
         </tbody>
       </table>
+      <Paginator page={page} totalPages={totalPages} setPage={setPage} total={filtered.length} pageSize={10} />
     </div>
   );
 }
 
 function MeterReadingsOverview({ meterReadings }) {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("הכל");
+
+  const filtered = meterReadings.filter(r => {
+    const matchStatus = statusFilter === "הכל" || (statusFilter === "חריגה" ? r.flag : r.status === statusFilter);
+    const q = search.trim();
+    const matchSearch = !q || r.customerName.includes(q) || r.meterNumber.includes(q);
+    return matchStatus && matchSearch;
+  });
+
+  const { paged, page, setPage, totalPages } = usePagination(filtered, 10);
+
   return (
     <div>
       <h2 className="section-title">סקירת קריאות מונים</h2>
@@ -520,21 +671,30 @@ function MeterReadingsOverview({ meterReadings }) {
         <div className="mini-stat"><span>ממתינות</span><strong>{meterReadings.filter(r => r.status === "ממתין").length}</strong></div>
         <div className="mini-stat red-stat"><span>חריגות</span><strong>{meterReadings.filter(r => r.flag).length}</strong></div>
       </div>
+      <div className="search-bar">
+        <input type="text" placeholder="🔍 חיפוש לפי שם לקוח או מספר מונה..." value={search} onChange={e => setSearch(e.target.value)} />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <option>הכל</option><option>ממתין</option><option>הוזן</option><option>חריגה</option>
+        </select>
+      </div>
       <table className="data-table">
-        <thead><tr><th>לקוח</th><th>מס׳ מונה</th><th>קריאה קודמת</th><th>קריאה נוכחית</th><th>צריכה</th><th>סטטוס</th></tr></thead>
+        <thead><tr><th>לקוח</th><th>מס׳ מונה</th><th>קריאה קודמת</th><th>קריאה נוכחית</th><th>צריכה</th><th>תאריך קריאה</th><th>סטטוס</th></tr></thead>
         <tbody>
-          {meterReadings.map(r => (
+          {paged.length === 0 && <tr><td colSpan="7" className="empty">לא נמצאו תוצאות</td></tr>}
+          {paged.map(r => (
             <tr key={r.id} className={r.flag ? "row-flagged" : ""}>
               <td>{r.customerName}</td>
               <td><code>{r.meterNumber}</code></td>
               <td>{r.previousReading}</td>
               <td>{r.currentReading ?? "—"}</td>
               <td>{r.currentReading ? r.currentReading - r.previousReading : "—"}</td>
+              <td>{formatDate(r.readingDate)}</td>
               <td><span className={`badge ${r.flag ? "badge-red" : r.status === "הוזן" ? "badge-green" : "badge-gray"}`}>{r.flag ? "⚠️ חריגה" : r.status}</span></td>
             </tr>
           ))}
         </tbody>
       </table>
+      <Paginator page={page} totalPages={totalPages} setPage={setPage} total={filtered.length} pageSize={10} />
     </div>
   );
 }
@@ -550,6 +710,8 @@ function TicketsOverview({ tickets, userList }) {
     const matchStatus = statusFilter === "הכל" || t.status === statusFilter;
     return matchSearch && matchPriority && matchStatus;
   });
+
+  const { paged, page, setPage, totalPages } = usePagination(filtered, 10);
 
   function exportExcel() {
     const rows = filtered.map(t => {
@@ -580,8 +742,8 @@ function TicketsOverview({ tickets, userList }) {
       <table className="data-table">
         <thead><tr><th>כותרת</th><th>כתובת</th><th>עדיפות</th><th>טכנאי</th><th>נפתח</th><th>סטטוס</th></tr></thead>
         <tbody>
-          {filtered.length === 0 && <tr><td colSpan="6" className="empty">לא נמצאו תוצאות</td></tr>}
-          {filtered.map(t => {
+          {paged.length === 0 && <tr><td colSpan="6" className="empty">לא נמצאו תוצאות</td></tr>}
+          {paged.map(t => {
             const tech = userList.find(u => u.id === t.assignedTech);
             return (
               <tr key={t.id}>
@@ -589,41 +751,92 @@ function TicketsOverview({ tickets, userList }) {
                 <td>{t.address}</td>
                 <td><span className={`badge ${t.priority === "גבוהה" ? "badge-red" : t.priority === "בינונית" ? "badge-orange" : "badge-gray"}`}>{t.priority}</span></td>
                 <td>{tech?.name}</td>
-                <td>{t.createdAt}</td>
+                <td>{formatDate(t.createdAt)}</td>
                 <td><span className={`badge ${t.status === "סגור" ? "badge-green" : t.status === "בטיפול" ? "badge-blue" : "badge-orange"}`}>{t.status}</span></td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      <Paginator page={page} totalPages={totalPages} setPage={setPage} total={filtered.length} pageSize={10} />
     </div>
   );
 }
 
+const WINDOW_OPTIONS = [
+  { key: "week",     label: "שבוע קרוב",     days: 7,   thresholds: [1, 3] },
+  { key: "2weeks",   label: "שבועיים קרובים", days: 14,  thresholds: [2, 5] },
+  { key: "month",    label: "חודש קרוב",      days: 30,  thresholds: [4, 9] },
+  { key: "halfyear", label: "חצי שנה קרובה",  days: 180, thresholds: [8, 20] },
+];
+
+function workloadBadge(count, thresholds) {
+  const [low, mid] = thresholds;
+  if (count <= low)  return <span className="badge badge-green">נמוך</span>;
+  if (count <= mid)  return <span className="badge badge-orange">בינוני</span>;
+  return <span className="badge badge-red">גבוה</span>;
+}
+
 function DepartmentReport({ taskList, customers, tickets, meterReadings, userList }) {
+  const [windowKey, setWindowKey] = useState("month");
+  const [search, setSearch] = useState("");
   const fieldWorkers = userList.filter(u => u.role !== "admin");
 
+  const windowOpt = WINDOW_OPTIONS.find(w => w.key === windowKey);
+
+  // ── per-worker stats helpers ─────────────────────────────────────────────
+  function workerTaskStats(uid) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + windowOpt.days);
+    const mine = taskList.filter(t => t.assignedTo === uid);
+    const inWindow = mine.filter(t => {
+      if (t.status === "הושלם" || t.status === "נדחה") return false;
+      if (!t.dueDate) return true; // no due date → always counts
+      const due = new Date(t.dueDate + "T00:00:00");
+      return due >= today && due <= cutoff;
+    });
+    return {
+      active:   inWindow.length,
+      done:     mine.filter(t => t.status === "הושלם").length,
+      rejected: mine.filter(t => t.status === "נדחה").length,
+    };
+  }
+
+  const matchesSearch = (name) => {
+    const q = search.trim();
+    return !q || name.includes(q);
+  };
+
   function exportReport() {
-    const sections = ["collector", "meter_reader", "technician"].map(role => {
-      const workers = fieldWorkers.filter(u => u.role === role);
-      const roleName = roleTeamLabel(role);
-      return `
-        <h2>${roleName}</h2>
-        ${makeTable(
-          ["שם", "אזור / התמחות", "משימות פעילות", "הושלמו", "נדחו", "עומס"],
-          workers.map(u => {
-            const active = taskList.filter(t => t.assignedTo === u.id && t.status !== "הושלם" && t.status !== "נדחה").length;
-            const done = taskList.filter(t => t.assignedTo === u.id && t.status === "הושלם").length;
-            const rejected = taskList.filter(t => t.assignedTo === u.id && t.status === "נדחה").length;
-            const level = active <= 2 ? "green" : active <= 4 ? "orange" : "red";
-            const levelText = active <= 2 ? "נמוך" : active <= 4 ? "בינוני" : "גבוה";
-            return [u.name, u.zone || u.specialty || "—", active, done, rejected,
-              `<span style="background:${level === "green" ? "#dcfce7" : level === "orange" ? "#fff7ed" : "#fee2e2"};color:${level === "green" ? "#166534" : level === "orange" ? "#9a3412" : "#991b1b"};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${levelText}</span>`
-            ];
-          })
-        )}
-      `;
-    }).join("");
+    const collectorRows = fieldWorkers.filter(u => u.role === "collector").map(u => {
+      const myCustomers = customers.filter(c => c.assignedCollector === u.id);
+      const debt = myCustomers.reduce((s, c) => s + c.debt, 0);
+      const paid = myCustomers.filter(c => c.status === "שולם").length;
+      const { active, done, rejected } = workerTaskStats(u.id);
+      return [u.name, u.zone || "—", myCustomers.length,
+        `₪${debt.toLocaleString()}`, paid, active, done, rejected,
+        workloadBadge(active, windowOpt.thresholds)
+      ];
+    });
+    const meterRows = fieldWorkers.filter(u => u.role === "meter_reader").map(u => {
+      const myReadings = meterReadings.filter(r => r.assignedReader === u.id);
+      const doneCnt  = myReadings.filter(r => r.status !== "ממתין").length;
+      const flagCnt  = myReadings.filter(r => r.flag).length;
+      const { active, done, rejected } = workerTaskStats(u.id);
+      return [u.name, u.zone || "—", myReadings.length, doneCnt,
+        myReadings.length - doneCnt, flagCnt, active, done, rejected
+      ];
+    });
+    const techRows = fieldWorkers.filter(u => u.role === "technician").map(u => {
+      const myTickets = tickets.filter(t => t.assignedTech === u.id);
+      const { active, done, rejected } = workerTaskStats(u.id);
+      return [u.name, u.specialty || "—",
+        myTickets.filter(t => t.status === "פתוח").length,
+        myTickets.filter(t => t.status === "בטיפול").length,
+        myTickets.filter(t => t.status === "סגור").length,
+        active, done, rejected
+      ];
+    });
 
     const overview = `
       ${statsRow([
@@ -633,24 +846,25 @@ function DepartmentReport({ taskList, customers, tickets, meterReadings, userLis
         { value: tickets.filter(t => t.status !== "סגור").length, label: "תקלות פתוחות", color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
         { value: taskList.filter(t => t.status === "הושלם").length, label: "משימות הושלמו", color: "#16a34a", bg: "#f0fdf4", border: "#bbf7d0" },
       ])}
-      <h2>📊 סיכום כללי</h2>
-      ${makeTable(
-        ["מדד", "ערך"],
-        [
-          ["סה\"כ עובדים", fieldWorkers.length],
-          ["סה\"כ לקוחות", customers.length],
-          ["חוב כולל פתוח", `₪${customers.reduce((s, c) => s + c.debt, 0).toLocaleString()}`],
-          ["תקלות פתוחות", tickets.filter(t => t.status !== "סגור").length],
-          ["קריאות ממתינות", meterReadings.filter(r => r.status === "ממתין").length],
-          ["קריאות חריגות", meterReadings.filter(r => r.flag).length],
-          ["משימות הושלמו", taskList.filter(t => t.status === "הושלם").length],
-          ["משימות נדחו", taskList.filter(t => t.status === "נדחה").length],
-        ]
-      )}
-      ${sections}
+      <h2>💰 גובים</h2>
+      ${makeTable(["שם","אזור","לקוחות","חוב","שולמו","משימות פעילות","הושלמו","נדחו"], collectorRows, "#065f46")}
+      <h2>💧 קוראי מונים</h2>
+      ${makeTable(["שם","אזור","סה״כ מונים","קראו","ממתינים","חריגות","משימות פעילות","הושלמו","נדחו"], meterRows, "#92400e")}
+      <h2>🔧 טכנאים</h2>
+      ${makeTable(["שם","התמחות","תקלות פתוחות","בטיפול","סגרו","משימות פעילות","הושלמו","נדחו"], techRows, "#6d28d9")}
     `;
     openPrintReport({ title: "דוח מחלקתי — AquaOps", subtitle: "סקירה כוללת לכל הצוותים", accentColor: "#1e3a8a", content: overview });
   }
+
+  // ── collector section ────────────────────────────────────────────────────
+  const collectors = fieldWorkers.filter(u => u.role === "collector");
+  const meterReaders = fieldWorkers.filter(u => u.role === "meter_reader");
+  const technicians = fieldWorkers.filter(u => u.role === "technician");
+
+  const visibleCollectors   = collectors.filter(u => matchesSearch(u.name));
+  const visibleMeterReaders = meterReaders.filter(u => matchesSearch(u.name));
+  const visibleTechnicians  = technicians.filter(u => matchesSearch(u.name));
+  const totalVisible = visibleCollectors.length + visibleMeterReaders.length + visibleTechnicians.length;
 
   return (
     <div>
@@ -658,34 +872,150 @@ function DepartmentReport({ taskList, customers, tickets, meterReadings, userLis
         <h2 className="section-title">דוח מחלקתי כללי</h2>
         <button className="btn-export" onClick={exportReport}>⬇ ייצוא PDF מלא</button>
       </div>
-      {["collector", "meter_reader", "technician"].map(role => {
-        const roleWorkers = fieldWorkers.filter(u => u.role === role);
-        return (
-          <div key={role} className="dept-section">
-            <h3>{roleTeamLabel(role)}</h3>
-            <table className="data-table">
-              <thead><tr><th>שם</th><th>אזור/התמחות</th><th>משימות פעילות</th><th>הושלמו</th><th>נדחו</th><th>עומס</th></tr></thead>
-              <tbody>
-                {roleWorkers.map(u => {
-                  const active = taskList.filter(t => t.assignedTo === u.id && t.status !== "הושלם" && t.status !== "נדחה").length;
-                  const done = taskList.filter(t => t.assignedTo === u.id && t.status === "הושלם").length;
-                  const rejected = taskList.filter(t => t.assignedTo === u.id && t.status === "נדחה").length;
-                  const level = active <= 2 ? "badge-green" : active <= 4 ? "badge-orange" : "badge-red";
-                  const levelText = active <= 2 ? "נמוך" : active <= 4 ? "בינוני" : "גבוה";
-                  return (
-                    <tr key={u.id}>
-                      <td><strong>{u.name}</strong></td>
-                      <td>{u.zone || u.specialty || "—"}</td>
-                      <td>{active}</td><td>{done}</td><td>{rejected}</td>
-                      <td><span className={`badge ${level}`}>{levelText}</span></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        );
-      })}
+
+      {/* ── Controls bar ── */}
+      <div className="dept-controls">
+        <div className="dept-search-wrap">
+          <input
+            type="text"
+            placeholder="🔍 חיפוש עובד לפי שם..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="dept-search-input"
+          />
+          {search && (
+            <span className="dept-search-count">
+              {totalVisible === 0 ? "לא נמצאו תוצאות" : `${totalVisible} עובדים`}
+            </span>
+          )}
+        </div>
+        <div className="dept-window-selector">
+          <span className="dept-window-label">חישוב עומס לפי:</span>
+          {WINDOW_OPTIONS.map(opt => (
+            <button
+              key={opt.key}
+              className={`filter-btn ${windowKey === opt.key ? "active" : ""}`}
+              onClick={() => setWindowKey(opt.key)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="dept-threshold-hint">
+        סף עומס — נמוך: עד {windowOpt.thresholds[0]} משימות &nbsp;|&nbsp;
+        בינוני: {windowOpt.thresholds[0]+1}–{windowOpt.thresholds[1]} משימות &nbsp;|&nbsp;
+        גבוה: {windowOpt.thresholds[1]+1}+ משימות
+        &nbsp;(בטווח הזמן שנבחר: {windowOpt.label})
+      </div>
+
+      {/* ── Collectors ── */}
+      <div className="dept-section">
+        <h3>💰 גובים <span className="dept-count">({visibleCollectors.length})</span></h3>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>שם</th><th>אזור</th>
+              <th>לקוחות</th><th>חוב כולל</th><th>שולמו</th>
+              <th>משימות בטווח</th><th>הושלמו</th><th>נדחו</th><th>עומס</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleCollectors.length === 0 && <tr><td colSpan="9" className="empty">{search ? "לא נמצאו תוצאות" : "אין גובים"}</td></tr>}
+            {visibleCollectors.map(u => {
+              const myCustomers = customers.filter(c => c.assignedCollector === u.id);
+              const debt = myCustomers.reduce((s, c) => s + c.debt, 0);
+              const paid = myCustomers.filter(c => c.status === "שולם").length;
+              const { active, done, rejected } = workerTaskStats(u.id);
+              return (
+                <tr key={u.id}>
+                  <td><strong>{u.name}</strong></td>
+                  <td>{u.zone || "—"}</td>
+                  <td>{myCustomers.length}</td>
+                  <td className={debt > 0 ? "debt-amount" : "paid-amount"}>
+                    {debt > 0 ? `₪${debt.toLocaleString()}` : "✓ נקי"}
+                  </td>
+                  <td><span className="badge badge-green">{paid}</span></td>
+                  <td>{active}</td><td>{done}</td><td>{rejected}</td>
+                  <td>{workloadBadge(active, windowOpt.thresholds)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Meter readers ── */}
+      <div className="dept-section">
+        <h3>💧 קוראי מונים <span className="dept-count">({visibleMeterReaders.length})</span></h3>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>שם</th><th>אזור</th>
+              <th>סה״כ מונים</th><th>קראו</th><th>ממתינים</th><th>חריגות</th>
+              <th>משימות בטווח</th><th>הושלמו</th><th>נדחו</th><th>עומס</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleMeterReaders.length === 0 && <tr><td colSpan="10" className="empty">{search ? "לא נמצאו תוצאות" : "אין קוראי מונים"}</td></tr>}
+            {visibleMeterReaders.map(u => {
+              const myReadings = meterReadings.filter(r => r.assignedReader === u.id);
+              const doneCnt  = myReadings.filter(r => r.status !== "ממתין").length;
+              const pendCnt  = myReadings.filter(r => r.status === "ממתין").length;
+              const flagCnt  = myReadings.filter(r => r.flag).length;
+              const { active, done, rejected } = workerTaskStats(u.id);
+              const pct = myReadings.length > 0 ? Math.round((doneCnt / myReadings.length) * 100) : 0;
+              return (
+                <tr key={u.id}>
+                  <td><strong>{u.name}</strong></td>
+                  <td>{u.zone || "—"}</td>
+                  <td>{myReadings.length}</td>
+                  <td><span className="badge badge-green">{doneCnt} ({pct}%)</span></td>
+                  <td><span className={pendCnt > 0 ? "badge badge-orange" : "badge badge-gray"}>{pendCnt}</span></td>
+                  <td><span className={flagCnt > 0 ? "badge badge-red" : "badge badge-gray"}>{flagCnt}</span></td>
+                  <td>{active}</td><td>{done}</td><td>{rejected}</td>
+                  <td>{workloadBadge(active, windowOpt.thresholds)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Technicians ── */}
+      <div className="dept-section">
+        <h3>🔧 טכנאים <span className="dept-count">({visibleTechnicians.length})</span></h3>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>שם</th><th>התמחות</th>
+              <th>תקלות פתוחות</th><th>בטיפול</th><th>סגרו</th>
+              <th>משימות בטווח</th><th>הושלמו</th><th>נדחו</th><th>עומס</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleTechnicians.length === 0 && <tr><td colSpan="9" className="empty">{search ? "לא נמצאו תוצאות" : "אין טכנאים"}</td></tr>}
+            {visibleTechnicians.map(u => {
+              const myTickets = tickets.filter(t => t.assignedTech === u.id);
+              const tOpen = myTickets.filter(t => t.status === "פתוח").length;
+              const tInProgress = myTickets.filter(t => t.status === "בטיפול").length;
+              const tClosed = myTickets.filter(t => t.status === "סגור").length;
+              const { active, done, rejected } = workerTaskStats(u.id);
+              return (
+                <tr key={u.id}>
+                  <td><strong>{u.name}</strong></td>
+                  <td>{u.specialty || "—"}</td>
+                  <td><span className={tOpen > 0 ? "badge badge-orange" : "badge badge-gray"}>{tOpen}</span></td>
+                  <td><span className={tInProgress > 0 ? "badge badge-blue" : "badge badge-gray"}>{tInProgress}</span></td>
+                  <td><span className="badge badge-green">{tClosed}</span></td>
+                  <td>{active}</td><td>{done}</td><td>{rejected}</td>
+                  <td>{workloadBadge(active, windowOpt.thresholds)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -694,6 +1024,7 @@ function EmployeesManager({ userList, setUserList }) {
   const [showForm, setShowForm] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", username: "", password: "", role: "collector", zone: "", specialty: "" });
   const [error, setError] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const fieldWorkers = userList.filter(u => u.role !== "admin");
 
@@ -724,8 +1055,12 @@ function EmployeesManager({ userList, setUserList }) {
   }
 
   function deleteUser(id) {
-    if (!window.confirm("האם למחוק עובד זה?")) return;
-    setUserList(prev => prev.filter(u => u.id !== id));
+    setConfirmDeleteId(id);
+  }
+
+  function confirmDelete() {
+    setUserList(prev => prev.filter(u => u.id !== confirmDeleteId));
+    setConfirmDeleteId(null);
   }
 
   return (
@@ -814,6 +1149,22 @@ function EmployeesManager({ userList, setUserList }) {
           </div>
         );
       })}
+
+      {confirmDeleteId && (
+        <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h3>אישור מחיקת עובד</h3>
+            <p>
+              האם למחוק את <strong>{userList.find(u => u.id === confirmDeleteId)?.name}</strong>?<br />
+              פעולה זו תסיר את העובד מהמערכת לצמיתות.
+            </p>
+            <div className="modal-actions">
+              <button className="btn-reject" onClick={confirmDelete}>כן, מחק</button>
+              <button className="btn-secondary" onClick={() => setConfirmDeleteId(null)}>ביטול</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

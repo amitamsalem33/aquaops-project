@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
+import { showToast } from "../lib/toast";
 import {
   tasks as mockTasks,
   tickets as mockTickets,
@@ -7,6 +8,15 @@ import {
   meterReadings as mockReadings,
   users as mockUsers,
 } from "../data/mockData";
+
+// Module-level syncing counter so Layout can show a "saving…" indicator
+let syncCount = 0;
+let syncListeners = [];
+function notifySyncListeners() { syncListeners.forEach(fn => fn(syncCount > 0)); }
+export function subscribeSyncing(fn) {
+  syncListeners.push(fn);
+  return () => { syncListeners = syncListeners.filter(f => f !== fn); };
+}
 
 // Fetch all rows from a table and extract the data field
 async function fetchTable(table) {
@@ -24,32 +34,52 @@ async function syncToSupabase(table, prevList, newList) {
   const newMap = new Map(newList.map((i) => [i.id, i]));
 
   const toUpsert = newList.filter((item) => {
-    if (!prevMap.has(item.id)) return true; // added
-    return JSON.stringify(prevMap.get(item.id)) !== JSON.stringify(item); // changed
+    if (!prevMap.has(item.id)) return true;
+    return JSON.stringify(prevMap.get(item.id)) !== JSON.stringify(item);
   });
 
   const toDelete = prevList.filter((item) => !newMap.has(item.id));
 
-  if (toUpsert.length > 0) {
-    const { error } = await supabase
-      .from(table)
-      .upsert(toUpsert.map((item) => ({ id: item.id, data: item })));
-    if (error) console.error(`Supabase upsert error (${table}):`, error);
-  }
+  if (toUpsert.length === 0 && toDelete.length === 0) return;
 
-  for (const item of toDelete) {
-    const { error } = await supabase.from(table).delete().eq("id", item.id);
-    if (error) console.error(`Supabase delete error (${table}):`, error);
+  syncCount++;
+  notifySyncListeners();
+
+  try {
+    if (toUpsert.length > 0) {
+      const { error } = await supabase
+        .from(table)
+        .upsert(toUpsert.map((item) => ({ id: item.id, data: item })));
+      if (error) {
+        console.error(`Supabase upsert error (${table}):`, error);
+        showToast("שגיאה בשמירת הנתונים", "error");
+        return;
+      }
+    }
+
+    for (const item of toDelete) {
+      const { error } = await supabase.from(table).delete().eq("id", item.id);
+      if (error) {
+        console.error(`Supabase delete error (${table}):`, error);
+        showToast("שגיאה במחיקת הנתונים", "error");
+        return;
+      }
+    }
+
+    showToast("הנתונים נשמרו בהצלחה", "success");
+  } finally {
+    syncCount--;
+    notifySyncListeners();
   }
 }
 
 // Create a setter that updates local state AND syncs to Supabase
-function makeSupabaseSetter(tableName, setState, getState) {
+function makeSupabaseSetter(tableName, setState) {
   return (updater) => {
     setState((prev) => {
       const newList =
         typeof updater === "function" ? updater(prev) : updater;
-      // Sync to Supabase in background
+      // Sync to Supabase in background (optimistic update)
       syncToSupabase(tableName, prev, newList);
       return newList;
     });

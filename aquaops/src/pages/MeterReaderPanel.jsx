@@ -3,6 +3,11 @@ import Layout from "../components/Layout";
 import { useAuth } from "../context/AuthContext";
 import { useData } from "../context/DataContext";
 import { openPrintReport, statusBadge, makeTable, statsRow } from "../utils/printReport";
+import { useTaskActions } from "../hooks/useTaskActions";
+import { usePagination, Paginator } from "../hooks/usePagination";
+import { formatDate } from "../utils/formatDate";
+
+const PAGE_SIZE = 8;
 
 export default function MeterReaderPanel() {
   const { currentUser } = useAuth();
@@ -12,14 +17,22 @@ export default function MeterReaderPanel() {
   const [inputValue, setInputValue] = useState("");
   const [alert, setAlert] = useState(null);
   const [activeTab, setActiveTab] = useState("readings");
-  const [rejectingTaskId, setRejectingTaskId] = useState(null);
-  const [rejectReason, setRejectReason] = useState("");
+  const [search, setSearch] = useState("");
 
-  const readings = readingList.filter(r => r.assignedReader === currentUser.id);
+  const { rejectingTaskId, setRejectingTaskId, rejectReason, setRejectReason, updateTaskStatus, rejectTask } =
+    useTaskActions(setTaskList, currentUser.id);
+
+  const allReadings = readingList.filter(r => r.assignedReader === currentUser.id);
+  const readings = allReadings.filter(r => {
+    const q = search.trim();
+    return !q || r.customerName.includes(q) || r.meterNumber.includes(q) || r.address.includes(q);
+  });
   const myTasks = taskList.filter(t => t.assignedTo === currentUser.id);
   const activeTasks = myTasks.filter(t => t.status !== "הושלם" && t.status !== "נדחה");
-  const pending = readings.filter(r => r.status === "ממתין").length;
-  const done = readings.filter(r => r.status !== "ממתין").length;
+  const pending = allReadings.filter(r => r.status === "ממתין").length;
+  const done = allReadings.filter(r => r.status !== "ממתין").length;
+
+  const { paged: pagedReadings, page, setPage, totalPages } = usePagination(readings, PAGE_SIZE);
 
   function submitReading() {
     const val = parseInt(inputValue);
@@ -50,24 +63,8 @@ export default function MeterReaderPanel() {
     setTimeout(() => setAlert(null), 5000);
   }
 
-  function updateTaskStatus(taskId, status) {
-    setTaskList(prev => prev.map(t => t.id === taskId ? { ...t, status } : t));
-  }
-
-  function rejectTask(taskId) {
-    if (!rejectReason.trim()) return;
-    setTaskList(prev => prev.map(t => t.id === taskId ? {
-      ...t, status: "נדחה",
-      rejectionReason: rejectReason,
-      rejectedBy: currentUser.id,
-      rejectedAt: new Date().toISOString().split("T")[0],
-    } : t));
-    setRejectingTaskId(null);
-    setRejectReason("");
-  }
-
   function exportPersonalReport() {
-    const flagged = readings.filter(r => r.flag).length;
+    const flagged = allReadings.filter(r => r.flag).length;
     const content = `
       ${statsRow([
         { value: readings.length, label: 'סה"כ מונים' },
@@ -91,7 +88,7 @@ export default function MeterReaderPanel() {
       <h2>✅ משימות מוקצות</h2>
       ${makeTable(
         ["כותרת", "תיאור", "תאריך יעד", "סטטוס"],
-        myTasks.map(t => [t.title, t.description || "—", t.dueDate, statusBadge(t.status)]),
+        myTasks.map(t => [t.title, t.description || "—", formatDate(t.dueDate), statusBadge(t.status)]),
         "#92400e"
       )}
     `;
@@ -109,7 +106,7 @@ export default function MeterReaderPanel() {
         <div className="stats-row">
           <div className="mini-stat"><span>נותרו לקריאה</span><strong>{pending}</strong></div>
           <div className="mini-stat green-stat"><span>הושלמו</span><strong>{done}</strong></div>
-          <div className="mini-stat red-stat"><span>חריגות</span><strong>{readings.filter(r => r.flag).length}</strong></div>
+          <div className="mini-stat red-stat"><span>חריגות</span><strong>{allReadings.filter(r => r.flag).length}</strong></div>
           <div className="mini-stat"><span>משימות פעילות</span><strong>{activeTasks.length}</strong></div>
         </div>
 
@@ -128,8 +125,17 @@ export default function MeterReaderPanel() {
             {alert && <div className={`alert-banner ${alert.type}`}>{alert.msg}</div>}
             <div className="two-col">
               <div className="list-panel">
+                <div style={{ marginBottom: "10px" }}>
+                  <input
+                    type="text"
+                    placeholder="🔍 חיפוש לפי שם לקוח, מונה או כתובת..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    style={{ width: "100%", padding: "7px 12px", border: "1.5px solid #d1d5db", borderRadius: "8px", fontSize: "13px", fontFamily: "inherit" }}
+                  />
+                </div>
                 <h3>רשימת מונים ({readings.length})</h3>
-                {readings.map(r => (
+                {pagedReadings.map(r => (
                   <div key={r.id} className={`customer-card ${selected?.id === r.id ? "selected" : ""} ${r.flag ? "high-debt" : ""}`}
                     onClick={() => { setSelected(r); setInputValue(""); setAlert(null); }}>
                     <div className="customer-card-header">
@@ -142,6 +148,7 @@ export default function MeterReaderPanel() {
                     </div>
                   </div>
                 ))}
+                <Paginator page={page} totalPages={totalPages} setPage={setPage} total={readings.length} pageSize={PAGE_SIZE} />
               </div>
               <div className="detail-panel">
                 {selected ? (
@@ -201,7 +208,7 @@ export default function MeterReaderPanel() {
                   </div>
                 </div>
                 <div className="task-card-footer">
-                  <span>תאריך יעד: {t.dueDate}</span>
+                  <span>תאריך יעד: {formatDate(t.dueDate)}</span>
                   {t.status !== "הושלם" && t.status !== "נדחה" && (
                     <div className="task-actions">
                       {t.status === "פתוח" && <button className="btn-warning" onClick={() => updateTaskStatus(t.id, "בביצוע")}>התחל עבודה</button>}

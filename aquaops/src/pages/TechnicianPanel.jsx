@@ -3,8 +3,12 @@ import Layout from "../components/Layout";
 import { useAuth } from "../context/AuthContext";
 import { useData } from "../context/DataContext";
 import { openPrintReport, statusBadge, priorityBadge, makeTable, statsRow } from "../utils/printReport";
+import { useTaskActions } from "../hooks/useTaskActions";
+import { usePagination, Paginator } from "../hooks/usePagination";
+import { formatDate } from "../utils/formatDate";
 
 const priorityOrder = { "גבוהה": 0, "בינונית": 1, "נמוכה": 2 };
+const PAGE_SIZE = 8;
 
 export default function TechnicianPanel() {
   const { currentUser } = useAuth();
@@ -12,9 +16,11 @@ export default function TechnicianPanel() {
 
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("הכל");
+  const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("tickets");
-  const [rejectingTaskId, setRejectingTaskId] = useState(null);
-  const [rejectReason, setRejectReason] = useState("");
+
+  const { rejectingTaskId, setRejectingTaskId, rejectReason, setRejectReason, updateTaskStatus, rejectTask } =
+    useTaskActions(setTaskList, currentUser.id);
 
   const myTickets = [...ticketList.filter(t => t.assignedTech === currentUser.id)]
     .sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
@@ -24,30 +30,22 @@ export default function TechnicianPanel() {
   const open = myTickets.filter(t => t.status === "פתוח").length;
   const inProgress = myTickets.filter(t => t.status === "בטיפול").length;
   const closed = myTickets.filter(t => t.status === "סגור").length;
-  const filtered = filter === "הכל" ? myTickets : myTickets.filter(t => t.status === filter);
+
+  const filtered = myTickets.filter(t => {
+    const matchStatus = filter === "הכל" || t.status === filter;
+    const q = search.trim();
+    const matchSearch = !q || t.title.includes(q) || t.address.includes(q);
+    return matchStatus && matchSearch;
+  });
+
+  const { paged: pagedTickets, page, setPage, totalPages } = usePagination(filtered, PAGE_SIZE);
 
   function updateTicket(id, status) {
-    const now = new Date().toLocaleString("he-IL");
+    const now = new Date().toLocaleDateString("he-IL");
     setTicketList(prev => prev.map(t =>
       t.id === id ? { ...t, status, ...(status === "סגור" ? { closedAt: now } : {}) } : t
     ));
     if (selected?.id === id) setSelected(prev => ({ ...prev, status, ...(status === "סגור" ? { closedAt: now } : {}) }));
-  }
-
-  function updateTaskStatus(taskId, status) {
-    setTaskList(prev => prev.map(t => t.id === taskId ? { ...t, status } : t));
-  }
-
-  function rejectTask(taskId) {
-    if (!rejectReason.trim()) return;
-    setTaskList(prev => prev.map(t => t.id === taskId ? {
-      ...t, status: "נדחה",
-      rejectionReason: rejectReason,
-      rejectedBy: currentUser.id,
-      rejectedAt: new Date().toISOString().split("T")[0],
-    } : t));
-    setRejectingTaskId(null);
-    setRejectReason("");
   }
 
   function exportPersonalReport() {
@@ -68,7 +66,7 @@ export default function TechnicianPanel() {
       <h2>✅ משימות מוקצות</h2>
       ${makeTable(
         ["כותרת", "תיאור", "עדיפות", "תאריך יעד", "סטטוס"],
-        myTasks.map(t => [t.title, t.description || "—", priorityBadge(t.priority), t.dueDate, statusBadge(t.status)]),
+        myTasks.map(t => [t.title, t.description || "—", priorityBadge(t.priority), formatDate(t.dueDate), statusBadge(t.status)]),
         "#6d28d9"
       )}
     `;
@@ -102,15 +100,24 @@ export default function TechnicianPanel() {
 
         {activeTab === "tickets" && (
           <>
-            <div className="filter-bar">
-              {["הכל", "פתוח", "בטיפול", "סגור"].map(f => (
-                <button key={f} className={`filter-btn ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>{f}</button>
-              ))}
+            <div className="filter-bar" style={{ flexWrap: "wrap", gap: "8px" }}>
+              <div style={{ display: "flex", gap: "6px" }}>
+                {["הכל", "פתוח", "בטיפול", "סגור"].map(f => (
+                  <button key={f} className={`filter-btn ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>{f}</button>
+                ))}
+              </div>
+              <input
+                type="text"
+                placeholder="🔍 חיפוש לפי כותרת או כתובת..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ flex: 1, minWidth: "200px", padding: "7px 12px", border: "1.5px solid #d1d5db", borderRadius: "8px", fontSize: "13px", fontFamily: "inherit" }}
+              />
             </div>
             <div className="two-col">
               <div className="list-panel">
                 <h3>כרטיסי תקלה ({filtered.length})</h3>
-                {filtered.map(t => (
+                {pagedTickets.map(t => (
                   <div key={t.id} className={`customer-card ${selected?.id === t.id ? "selected" : ""} ${t.priority === "גבוהה" && t.status !== "סגור" ? "high-debt" : ""}`} onClick={() => setSelected(t)}>
                     <div className="customer-card-header">
                       <strong>{t.title}</strong>
@@ -120,9 +127,10 @@ export default function TechnicianPanel() {
                       <span>📍 {t.address}</span>
                       <span className={`badge ${t.status === "סגור" ? "badge-green" : t.status === "בטיפול" ? "badge-blue" : "badge-orange"}`}>{t.status}</span>
                     </div>
-                    <div className="card-date">{t.createdAt}</div>
+                    <div className="card-date">{formatDate(t.createdAt)}</div>
                   </div>
                 ))}
+                <Paginator page={page} totalPages={totalPages} setPage={setPage} total={filtered.length} pageSize={PAGE_SIZE} />
               </div>
               <div className="detail-panel">
                 {selected ? (
@@ -136,7 +144,7 @@ export default function TechnicianPanel() {
                         <span className={`badge ${selected.priority === "גבוהה" ? "badge-red" : selected.priority === "בינונית" ? "badge-orange" : "badge-gray"}`}>{selected.priority}</span>
                       </div>
                       <div className="detail-row"><label>דווח ע״י</label><span>{selected.reportedBy}</span></div>
-                      <div className="detail-row"><label>נפתח</label><span>{selected.createdAt}</span></div>
+                      <div className="detail-row"><label>נפתח</label><span>{formatDate(selected.createdAt)}</span></div>
                       {selected.closedAt && <div className="detail-row"><label>נסגר</label><span>{selected.closedAt}</span></div>}
                       <div className="detail-row"><label>סטטוס</label>
                         <span className={`badge ${selected.status === "סגור" ? "badge-green" : selected.status === "בטיפול" ? "badge-blue" : "badge-orange"}`}>{selected.status}</span>
@@ -180,7 +188,7 @@ export default function TechnicianPanel() {
                   </div>
                 </div>
                 <div className="task-card-footer">
-                  <span>תאריך יעד: {t.dueDate}</span>
+                  <span>תאריך יעד: {formatDate(t.dueDate)}</span>
                   {t.status !== "הושלם" && t.status !== "נדחה" && (
                     <div className="task-actions">
                       {t.status === "פתוח" && <button className="btn-warning" onClick={() => updateTaskStatus(t.id, "בביצוע")}>התחל עבודה</button>}

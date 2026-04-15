@@ -1,19 +1,19 @@
 // ===== AquaOps Mock Data =====
 
 export const users = [
-  { id: 1,  username: "manager1",   password: "AquaAdmin1",  name: "יוסי לוי",      role: "admin",        email: "yossi@aquaops.co.il" },
+  { id: 1,  username: "manager1",   password: "1234",  name: "יוסי לוי",      role: "admin",        email: "yossi@aquaops.co.il" },
   // גובים
-  { id: 2,  username: "collector1", password: "David2026",   name: "דוד כהן",       role: "collector",    email: "david@aquaops.co.il",  zone: "צפון תל אביב" },
-  { id: 3,  username: "collector2", password: "Mira2026",    name: "מירה אברהם",    role: "collector",    email: "mira@aquaops.co.il",   zone: "דרום תל אביב" },
-  { id: 8,  username: "collector3", password: "Noa2026",     name: "נועה בן-דוד",   role: "collector",    email: "noa@aquaops.co.il",    zone: "מרכז תל אביב" },
+  { id: 2,  username: "collector1", password: "1234",  name: "דוד כהן",       role: "collector",    email: "david@aquaops.co.il",  zone: "צפון תל אביב" },
+  { id: 3,  username: "collector2", password: "1234",  name: "מירה אברהם",    role: "collector",    email: "mira@aquaops.co.il",   zone: "דרום תל אביב" },
+  { id: 8,  username: "collector3", password: "1234",  name: "נועה בן-דוד",   role: "collector",    email: "noa@aquaops.co.il",    zone: "מרכז תל אביב" },
   // קוראי מונים
-  { id: 4,  username: "meter1",     password: "Ron2026",     name: "רון שפירא",     role: "meter_reader", email: "ron@aquaops.co.il",    zone: "רמת גן" },
-  { id: 5,  username: "meter2",     password: "Anat2026",    name: "ענת ביטון",     role: "meter_reader", email: "anat@aquaops.co.il",   zone: "בני ברק" },
-  { id: 9,  username: "meter3",     password: "Yosi2026",    name: "יוסי אלמוג",    role: "meter_reader", email: "yosi@aquaops.co.il",   zone: "פתח תקווה" },
+  { id: 4,  username: "meter1",     password: "1234",  name: "רון שפירא",     role: "meter_reader", email: "ron@aquaops.co.il",    zone: "רמת גן" },
+  { id: 5,  username: "meter2",     password: "1234",  name: "ענת ביטון",     role: "meter_reader", email: "anat@aquaops.co.il",   zone: "בני ברק" },
+  { id: 9,  username: "meter3",     password: "1234",  name: "יוסי אלמוג",    role: "meter_reader", email: "yosi@aquaops.co.il",   zone: "פתח תקווה" },
   // טכנאים
-  { id: 6,  username: "tech1",      password: "Avi2026",     name: "אבי נחום",      role: "technician",   email: "avi@aquaops.co.il",    specialty: "צינורות" },
-  { id: 7,  username: "tech2",      password: "Shira2026",   name: "שירה גרין",     role: "technician",   email: "shira@aquaops.co.il",  specialty: "מונים" },
-  { id: 10, username: "tech3",      password: "Riki2026",    name: "ריקי שלום",     role: "technician",   email: "riki@aquaops.co.il",   specialty: "תשתיות" },
+  { id: 6,  username: "tech1",      password: "1234",  name: "אבי נחום",      role: "technician",   email: "avi@aquaops.co.il",    specialty: "צינורות" },
+  { id: 7,  username: "tech2",      password: "1234",  name: "שירה גרין",     role: "technician",   email: "shira@aquaops.co.il",  specialty: "מונים" },
+  { id: 10, username: "tech3",      password: "1234",  name: "ריקי שלום",     role: "technician",   email: "riki@aquaops.co.il",   specialty: "תשתיות" },
 ];
 
 export const customers = [

@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { useData } from "../context/DataContext";
+import { subscribeToast } from "../lib/toast";
+import { subscribeSyncing } from "../hooks/useSupabaseData";
 
 const roleLabels = {
   admin: "מנהל משרד",
@@ -137,6 +139,39 @@ function NotificationBell() {
   );
 }
 
+function ToastContainer() {
+  const [toasts, setToasts] = useState([]);
+
+  useEffect(() => {
+    const unsub = subscribeToast(({ id, msg, type }) => {
+      setToasts(prev => [...prev, { id, msg, type }]);
+      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
+    });
+    return unsub;
+  }, []);
+
+  if (toasts.length === 0) return null;
+  return (
+    <div className="toast-container">
+      {toasts.map(t => (
+        <div key={t.id} className={`toast toast-${t.type}`}>
+          {t.type === "success" ? "✓" : "✕"} {t.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SyncBadge() {
+  const [syncing, setSyncing] = useState(false);
+  useEffect(() => {
+    const unsub = subscribeSyncing(setSyncing);
+    return unsub;
+  }, []);
+  if (!syncing) return null;
+  return <span className="sync-badge">שומר…</span>;
+}
+
 export default function Layout({ children, title }) {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
@@ -148,11 +183,13 @@ export default function Layout({ children, title }) {
 
   return (
     <div className="app-layout" dir="rtl">
+      <ToastContainer />
       <header className="app-header" style={{ background: roleColors[currentUser?.role] }}>
         <div className="header-content">
           <div className="header-left">
             <span className="header-logo">💧 AquaOps</span>
             <span className="header-title">{title}</span>
+            <SyncBadge />
           </div>
           <div className="header-right">
             <NotificationBell />

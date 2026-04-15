@@ -3,6 +3,11 @@ import Layout from "../components/Layout";
 import { useAuth } from "../context/AuthContext";
 import { useData } from "../context/DataContext";
 import { openPrintReport, statusBadge, makeTable, statsRow } from "../utils/printReport";
+import { useTaskActions } from "../hooks/useTaskActions";
+import { usePagination, Paginator } from "../hooks/usePagination";
+import { formatDate } from "../utils/formatDate";
+
+const PAGE_SIZE = 8;
 
 export default function CollectorPanel() {
   const { currentUser } = useAuth();
@@ -10,38 +15,32 @@ export default function CollectorPanel() {
 
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("הכל");
+  const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("customers");
-  const [rejectingTaskId, setRejectingTaskId] = useState(null);
-  const [rejectReason, setRejectReason] = useState("");
+
+  const { rejectingTaskId, setRejectingTaskId, rejectReason, setRejectReason, updateTaskStatus, rejectTask } =
+    useTaskActions(setTaskList, currentUser.id);
 
   const myCustomers = customerList.filter(c => c.assignedCollector === currentUser.id);
   const myTasks = taskList.filter(t => t.assignedTo === currentUser.id);
   const activeTasks = myTasks.filter(t => t.status !== "הושלם" && t.status !== "נדחה");
   const totalDebt = myCustomers.reduce((s, c) => s + c.debt, 0);
   const collected = myCustomers.filter(c => c.status === "שולם").length;
-  const filtered = filter === "הכל" ? myCustomers : myCustomers.filter(c => c.status === filter);
+
+  const filtered = myCustomers.filter(c => {
+    const matchStatus = filter === "הכל" || c.status === filter;
+    const q = search.trim();
+    const matchSearch = !q || c.name.includes(q) || c.accountNumber.includes(q) || c.address.includes(q);
+    return matchStatus && matchSearch;
+  });
+
+  const { paged: pagedCustomers, page, setPage, totalPages } = usePagination(filtered, PAGE_SIZE);
 
   function updateStatus(id, status) {
     setCustomerList(prev => prev.map(c =>
       c.id === id ? { ...c, status, debt: status === "שולם" ? 0 : c.debt } : c
     ));
     if (selected?.id === id) setSelected(prev => ({ ...prev, status, debt: status === "שולם" ? 0 : prev.debt }));
-  }
-
-  function updateTaskStatus(taskId, status) {
-    setTaskList(prev => prev.map(t => t.id === taskId ? { ...t, status } : t));
-  }
-
-  function rejectTask(taskId) {
-    if (!rejectReason.trim()) return;
-    setTaskList(prev => prev.map(t => t.id === taskId ? {
-      ...t, status: "נדחה",
-      rejectionReason: rejectReason,
-      rejectedBy: currentUser.id,
-      rejectedAt: new Date().toISOString().split("T")[0],
-    } : t));
-    setRejectingTaskId(null);
-    setRejectReason("");
   }
 
   function exportPersonalReport() {
@@ -66,7 +65,7 @@ export default function CollectorPanel() {
       <h2>✅ משימות מוקצות</h2>
       ${makeTable(
         ["כותרת", "תיאור", "תאריך יעד", "סטטוס"],
-        myTasks.map(t => [t.title, t.description || "—", t.dueDate, statusBadge(t.status)]),
+        myTasks.map(t => [t.title, t.description || "—", formatDate(t.dueDate), statusBadge(t.status)]),
         "#065f46"
       )}
     `;
@@ -100,15 +99,25 @@ export default function CollectorPanel() {
 
         {activeTab === "customers" && (
           <>
-            <div className="filter-bar">
-              {["הכל", "פתוח", "בטיפול", "שולם"].map(f => (
-                <button key={f} className={`filter-btn ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>{f}</button>
-              ))}
+            <div className="filter-bar" style={{ flexWrap: "wrap", gap: "8px" }}>
+              <div style={{ display: "flex", gap: "6px" }}>
+                {["הכל", "פתוח", "בטיפול", "שולם"].map(f => (
+                  <button key={f} className={`filter-btn ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>{f}</button>
+                ))}
+              </div>
+              <input
+                type="text"
+                className="search-input-inline"
+                placeholder="🔍 חיפוש לפי שם, חשבון או כתובת..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ flex: 1, minWidth: "200px", padding: "7px 12px", border: "1.5px solid #d1d5db", borderRadius: "8px", fontSize: "13px", fontFamily: "inherit" }}
+              />
             </div>
             <div className="two-col">
               <div className="list-panel">
                 <h3>רשימת לקוחות ({filtered.length})</h3>
-                {filtered.map(c => (
+                {pagedCustomers.map(c => (
                   <div key={c.id} className={`customer-card ${selected?.id === c.id ? "selected" : ""} ${c.debt > 1000 ? "high-debt" : ""}`} onClick={() => setSelected(c)}>
                     <div className="customer-card-header">
                       <strong>{c.name}</strong>
@@ -120,6 +129,7 @@ export default function CollectorPanel() {
                     </div>
                   </div>
                 ))}
+                <Paginator page={page} totalPages={totalPages} setPage={setPage} total={filtered.length} pageSize={PAGE_SIZE} />
               </div>
               <div className="detail-panel">
                 {selected ? (
@@ -131,7 +141,7 @@ export default function CollectorPanel() {
                       <div className="detail-row"><label>כתובת</label><span>{selected.address}</span></div>
                       <div className="detail-row"><label>טלפון</label><span>{selected.phone}</span></div>
                       <div className="detail-row"><label>יתרת חוב</label><span className={selected.debt > 0 ? "debt-amount" : "paid-amount"}>{selected.debt > 0 ? `₪${selected.debt.toLocaleString()}` : "שולם"}</span></div>
-                      <div className="detail-row"><label>תשלום אחרון</label><span>{selected.lastPayment}</span></div>
+                      <div className="detail-row"><label>תשלום אחרון</label><span>{formatDate(selected.lastPayment)}</span></div>
                       <div className="detail-row"><label>סטטוס</label><span className={`badge ${selected.status === "שולם" ? "badge-green" : selected.status === "בטיפול" ? "badge-blue" : "badge-orange"}`}>{selected.status}</span></div>
                     </div>
                     <div className="action-section">
@@ -170,7 +180,7 @@ export default function CollectorPanel() {
                   </div>
                 </div>
                 <div className="task-card-footer">
-                  <span>תאריך יעד: {t.dueDate}</span>
+                  <span>תאריך יעד: {formatDate(t.dueDate)}</span>
                   {t.status !== "הושלם" && t.status !== "נדחה" && (
                     <div className="task-actions">
                       {t.status === "פתוח" && <button className="btn-warning" onClick={() => updateTaskStatus(t.id, "בביצוע")}>התחל עבודה</button>}
